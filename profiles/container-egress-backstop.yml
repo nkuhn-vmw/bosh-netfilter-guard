@@ -1,0 +1,23 @@
+# Defense in depth for Diego cells: drop app-container traffic to platform management ports, no matter what
+# the application security groups (ASGs) allow. If an app is compromised (an RCE of the "...2Shell" kind),
+# this keeps the shell from talking to the BOSH director, BOSH agents or NATS.
+#
+# ASGs are the primary control; this is a narrow backstop. Before enforcing:
+#   - Set CONTAINER_CIDR to your overlay network (Silk default 10.255.0.0/16).
+#   - Run in monitor mode for a few days and check the counters: any hit is either an attack or an app that
+#     legitimately talks to these ports, so investigate before enforcing.
+#   - Do NOT add ports apps use through the container itself. For example, CredHub (8844) is called from
+#     inside the container by the Diego launcher for CredHub service bindings.
+# Apply only to Diego cells (runtime config include: instance_groups: [<your cell group>]).
+- name: egress-backstop-bosh-director
+  table: filter
+  hook: FORWARD
+  match: '-s CONTAINER_CIDR -p tcp -m multiport --dports 25555,6868'
+  target: REJECT --reject-with tcp-reset
+  mode: monitor
+- name: egress-backstop-nats
+  table: filter
+  hook: FORWARD
+  match: '-s CONTAINER_CIDR -p tcp -m multiport --dports 4222,4223,4224'
+  target: REJECT --reject-with tcp-reset
+  mode: monitor

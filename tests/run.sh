@@ -12,7 +12,7 @@ render() { ruby tests/render.rb "$T/$1" "$2"; }
 props() { cat > "$W/props.yml"; }
 
 # 1. profiles render into restore files with the expected rules
-{ echo "netfilter_guard:"; echo "  rules:"; cat profiles/*.yml | grep -v '^#' | sed 's/^/  /'; } > "$W/all.yml"
+{ echo "netfilter_guard:"; echo "  rules:"; cat profiles/*.yml | grep -v '^#' | sed 's/CONTAINER_CIDR/198.51.100.0\/24/; s/^/  /'; } > "$W/all.yml"
 render rules.v4.erb "$W/all.yml" > "$W/rules.v4" && render rules.v6.erb "$W/all.yml" > "$W/rules.v6" \
   && ok "profiles render" || bad "profiles render"
 grep -q -- '-A NFG-PREROUTING -p tcp -m u32 --u32 "0>>24&0x0F=6:15" -m comment --comment "nfg:ipv4-options-tcp" -j DROP' "$W/rules.v4" \
@@ -23,6 +23,8 @@ grep -q 'nfg:ipv4-options-tcp' "$W/rules.v6" && bad "ipv4-only rule leaked into 
 grep -q 'nfg:ipv6-rh0' "$W/rules.v6" && ! grep -q 'nfg:ipv6-rh0' "$W/rules.v4" && ok "ipv6-only rule in v6 only" || bad "ipv6-only rule placement"
 [ "$(grep -c 'nfg:tcp-small-mss' "$W/rules.v4" "$W/rules.v6" | awk -F: '{s+=$2} END {print s}')" = 2 ] \
   && ok "family both -> v4 and v6" || bad "family both"
+grep -q -- '-A NFG-FORWARD -s 198.51.100.0/24 -p tcp -m multiport --dports 25555,6868 -m comment --comment "nfg:egress-backstop-bosh-director"$' "$W/rules.v4" \
+  && ok "egress backstop renders in monitor mode (no target)" || bad "egress backstop render"
 
 # 2. monitor mode drops the target
 printf 'netfilter_guard:\n  mode: monitor\n  rules:\n  - {name: a, match: "-p tcp"}\n  - {name: b, match: "-p udp", mode: enforce, target: REJECT}\n' | props

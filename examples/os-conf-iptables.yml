@@ -1,0 +1,31 @@
+# The IPv4-options rule delivered with os-conf-release's `iptables` job instead of netfilter-guard.
+# os-conf is maintained under the Cloud Foundry org (https://github.com/cloudfoundry/os-conf-release).
+#
+# Trade-offs, read from the job's source (os-conf v23.x):
+#   - Applied by monit, i.e. after the BOSH agent starts jobs: not in place before networking at boot, and
+#     re-applied after a reboot only when monit starts the job again.
+#   - `monit stop` (every deploy, before the update) runs disable.sh, which FLUSHES the chain: no protection
+#     from job stop until job start.
+#   - The jump to `pfbr-custom-<chain>` is APPENDED to the built-in chain, so any earlier ACCEPT wins.
+#     raw/PREROUTING is normally empty on stemcells, so it works there; it's riskier in filter/FORWARD.
+#   - No validation, drift repair, monitor mode or evidence tooling.
+releases:
+- name: os-conf
+  version: 23.0.4            # upload from bosh.io first
+addons:
+- name: os-conf-ipv4-options
+  jobs:
+  - name: iptables
+    release: os-conf
+    properties:
+      iptables:
+        raw:
+          PREROUTING:
+          - -p tcp -m u32 --u32 "0>>24&0x0F=6:15" -j DROP
+          OUTPUT:
+          - -p tcp -m u32 --u32 "0>>24&0x0F=6:15" -j DROP
+  include:
+    stemcell:
+    - os: ubuntu-jammy
+    deployments:
+    - my-canary-deployment

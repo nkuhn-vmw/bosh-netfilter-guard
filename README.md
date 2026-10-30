@@ -100,8 +100,18 @@ raw `OUTPUT` for those, as the `ipv4-options` profile does.
 | `ipv4-options.yml` | TCP packets whose IPv4 header carries options (IHL > 5), inbound (PREROUTING) and host-generated (OUTPUT) |
 | `ipv6-rh0.yml` | IPv6 packets with a type 0 routing header (deprecated, RFC 5095) |
 | `tcp-small-mss.yml` | TCP SYNs advertising MSS ≤ 500 |
+| `container-egress-backstop.yml` | Diego cells only: app-container traffic to BOSH director/agent and NATS ports (defense in depth behind ASGs; ships in monitor mode, needs your overlay CIDR) |
 
 Combine several by listing their entries under one `netfilter_guard.rules`.
+
+## What this can and can't mitigate
+
+A packet filter stops bugs whose trigger is visible in packet headers, such as kernel network-stack bugs reached
+through unusual packet shapes. It can't stop application-layer RCEs, where the payload sits inside HTTP or TLS
+(language-runtime bugs, decompression bugs like the Brotli "HTTP2Shell" class). For those, it can only help
+contain what a compromised container reaches afterwards. [docs/mitigation-matrix.md](docs/mitigation-matrix.md)
+maps recent vulnerability classes to the controls that work. It also compares this release with os-conf's
+`iptables` and `pre-start-script` jobs, with an os-conf example in `examples/os-conf-iptables.yml`.
 
 ## Rolling out a mitigation
 
