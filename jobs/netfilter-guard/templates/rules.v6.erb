@@ -1,0 +1,49 @@
+<% FAMILY = 'ipv6' -%>
+<%
+  HOOKS = {
+    'raw'    => %w(PREROUTING OUTPUT),
+    'mangle' => %w(PREROUTING INPUT FORWARD OUTPUT POSTROUTING),
+    'filter' => %w(INPUT FORWARD OUTPUT),
+  }
+  global_mode = p('netfilter_guard.mode')
+  raise "netfilter_guard.mode must be enforce or monitor, got #{global_mode.inspect}" unless %w(enforce monitor).include?(global_mode)
+  rules = p('netfilter_guard.enabled') ? p('netfilter_guard.rules') : []
+  raise 'netfilter_guard.rules must be a list' unless rules.is_a?(Array)
+  seen = {}
+  rules.each_with_index do |r, i|
+    where = "netfilter_guard.rules[#{i}]"
+    raise "#{where} must be a hash" unless r.is_a?(Hash)
+    name = r['name'].to_s
+    raise "#{where}.name must match [a-z0-9][a-z0-9-]{0,47}" unless name =~ /\A[a-z0-9][a-z0-9-]{0,47}\z/
+    raise "#{where}: duplicate name #{name}" if seen[name]
+    seen[name] = true
+    match = r['match'].to_s.strip
+    raise "#{where}.match is required" if match.empty?
+    raise "#{where}.match must not contain a target (-j/-g); use `target`" if match =~ /(\A|\s)(-j|--jump|-g|--goto)(\s|=)/
+    raise "#{where}.match must be a single line" if match =~ /[\r\n]/
+    raise "#{where}.family must be ipv4, ipv6 or both" unless %w(ipv4 ipv6 both).include?(r.fetch('family', 'ipv4'))
+    table = r.fetch('table', 'raw')
+    raise "#{where}.table must be one of #{HOOKS.keys.join(', ')}" unless HOOKS.key?(table)
+    hook = r.fetch('hook', 'PREROUTING')
+    raise "#{where}.hook #{hook} is not valid for table #{table} (#{HOOKS[table].join(', ')})" unless HOOKS[table].include?(hook)
+    raise "#{where}.mode must be enforce or monitor" unless %w(enforce monitor).include?(r.fetch('mode', global_mode))
+    raise "#{where}.target must be a single line" if r.fetch('target', 'DROP').to_s =~ /[\r\n]/
+  end
+  grouped = {}
+  rules.each do |r|
+    fam = r.fetch('family', 'ipv4')
+    next unless fam == FAMILY || fam == 'both'
+    ((grouped[r.fetch('table', 'raw')] ||= {})[r.fetch('hook', 'PREROUTING')] ||= []) << r
+  end
+-%>
+# Rendered by the netfilter-guard BOSH job. iptables-restore --noflush format; chains are NFG-<hook>.
+<% grouped.each do |table, hooks| -%>
+*<%= table %>
+<% hooks.each do |hook, rs| -%>
+-F NFG-<%= hook %>
+<% rs.each do |r| -%>
+-A NFG-<%= hook %> <%= r['match'].strip %> -m comment --comment "nfg:<%= r['name'] %>"<%= r.fetch('mode', global_mode) == 'monitor' ? '' : " -j #{r.fetch('target', 'DROP')}" %>
+<% end -%>
+<% end -%>
+COMMIT
+<% end -%>

@@ -1,0 +1,7 @@
+---
+name: netfilter-guard
+# Job-only release (no packages, no blobs). A local blobstore keeps `bosh create-release --final` working.
+blobstore:
+  provider: local
+  options:
+    blobstore_path: /tmp/netfilter-guard-blobs

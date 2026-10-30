@@ -1,0 +1,10 @@
+# Drop inbound TCP packets whose IPv4 header carries options (IHL > 5).
+# Legitimate TCP almost never uses IPv4 options; several kernel bugs over the years have been reachable
+# only through them. Raw PREROUTING sees the packet before conntrack, routing and DNAT, so this also
+# covers traffic forwarded to containers on the host. IGMP (which does use options) is untouched: TCP only.
+- name: ipv4-options-tcp
+  family: ipv4
+  table: raw
+  hook: PREROUTING
+  match: '-p tcp -m u32 --u32 "0>>24&0x0F=6:15"'
+  target: DROP

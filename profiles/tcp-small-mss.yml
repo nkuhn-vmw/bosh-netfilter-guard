@@ -1,0 +1,8 @@
+# Drop inbound TCP SYNs advertising a very small MSS. A classic interim control for kernel bugs triggered
+# by tiny segment sizes. 500 is conservative; real clients advertise >= 536 (IPv4) / 1220 (IPv6).
+- name: tcp-small-mss
+  family: both
+  table: raw
+  hook: PREROUTING
+  match: '-p tcp --tcp-flags SYN,RST,ACK SYN -m tcpmss --mss 1:500'
+  target: DROP

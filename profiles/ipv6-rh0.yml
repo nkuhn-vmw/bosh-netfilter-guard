@@ -1,0 +1,7 @@
+# Drop IPv6 packets carrying a type 0 routing header (deprecated by RFC 5095; source-routing abuse).
+- name: ipv6-rh0
+  family: ipv6
+  table: raw
+  hook: PREROUTING
+  match: '-m rt --rt-type 0'
+  target: DROP

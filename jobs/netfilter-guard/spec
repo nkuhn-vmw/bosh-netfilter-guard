@@ -1,0 +1,38 @@
+---
+name: netfilter-guard
+description: >
+  Applies a list of named netfilter rules (iptables / ip6tables) to the VM's host network stack and keeps
+  them in place across deploys and reboots. Intended for interim, packet-level mitigations that must
+  hold until a kernel or stemcell fix ships. Rules live in chains this job owns (NFG-<hook>), so
+  re-applying or removing never touches rules managed by anything else.
+
+templates:
+  pre-start.erb: bin/pre-start
+  netfilter-guard.sh: bin/netfilter-guard
+  rules.v4.erb: config/rules.v4
+  rules.v6.erb: config/rules.v6
+  netfilter-guard.service: config/netfilter-guard.service
+
+packages: []
+
+properties:
+  netfilter_guard.enabled:
+    description: Set false (and deploy) to remove all rules, the script and the systemd unit from the VM.
+    default: true
+  netfilter_guard.mode:
+    description: >
+      enforce = apply each rule's target (default DROP). monitor = match and count only (no target),
+      for checking a rule against real traffic before enforcing it. A rule's own `mode` overrides this.
+    default: enforce
+  netfilter_guard.rules:
+    description: |
+      List of rules. Fields:
+        name:   required, unique, [a-z0-9-], used in the rule comment (nfg:<name>)
+        match:  required, iptables match arguments, e.g. '-p tcp -m u32 --u32 "0>>24&0x0F=6:15"'
+                (no -j/-g; set the target with `target`)
+        target: default DROP (any iptables target, e.g. REJECT, LOG --log-prefix "x: ")
+        family: ipv4 (default) | ipv6 | both
+        table:  raw (default) | mangle | filter
+        hook:   PREROUTING (default) | INPUT | FORWARD | OUTPUT | POSTROUTING (must be valid for the table)
+        mode:   optional per-rule enforce | monitor
+    default: []

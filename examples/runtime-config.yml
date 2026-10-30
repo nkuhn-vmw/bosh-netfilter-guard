@@ -1,0 +1,24 @@
+# A named runtime config, so it lives beside (and never replaces) the director's default one, including
+# configs that Ops Manager manages. Upload with:
+#   bosh update-config --type=runtime --name=netfilter-guard examples/runtime-config.yml
+# Then redeploy the included deployments (or Apply Changes on Ops Manager-managed directors).
+releases:
+- name: netfilter-guard
+  version: 0.1.0
+
+addons:
+- name: netfilter-guard
+  jobs:
+  - name: netfilter-guard
+    release: netfilter-guard
+    properties:
+      netfilter_guard:
+        mode: monitor            # count only; switch to enforce once counters stay at 0 under real load
+        rules:
+        - name: ipv4-options-tcp
+          match: '-p tcp -m u32 --u32 "0>>24&0x0F=6:15"'
+  include:
+    stemcell:
+    - os: ubuntu-jammy
+    deployments:
+    - my-canary-deployment     # start with one low-risk deployment, then widen
