@@ -13,7 +13,9 @@ TABLES="raw mangle filter"
 # note: iptables-nft 1.8.7 (Jammy) prints the matched rule on a successful -C, hence >/dev/null on checks
 ipt()     { if [ "$1" = v4 ]; then shift; iptables -w 10 "$@"; else shift; ip6tables -w 10 "$@"; fi; }
 restore() { if [ "$1" = v4 ]; then iptables-restore -w 10 --noflush; else ip6tables-restore -w 10 --noflush; fi; }
-have()    { if [ "$1" = v4 ]; then command -v iptables >/dev/null; else command -v ip6tables >/dev/null && [ -e /proc/net/if_inet6 ]; fi; }
+have()    { if [ "$1" = v4 ]; then command -v iptables >/dev/null; else command -v ip6tables >/dev/null; fi; }
+# BOSH stemcells boot with IPv6 disabled (no /proc/net/if_inet6): no IPv6 traffic exists to filter, so skip v6
+v6_off()  { [ "$1" = v6 ] && [ ! -e "${NFG_IF_INET6:-/proc/net/if_inet6}" ]; }
 
 # "table hook" pairs the rendered file wants
 wanted() {
@@ -40,6 +42,10 @@ unhook() {  # family table hook
 apply_family() {
   local fam=$1 want t h
   want=$(wanted "$fam")
+  if v6_off "$fam"; then
+    [ -n "$want" ] && echo "netfilter-guard: IPv6 is disabled on this host; skipping $(grep -c '^-A' "$LIB/rules.v6") v6 rule(s)"
+    remove_family v6; return 0
+  fi
   if ! have "$fam"; then
     [ -z "$want" ] && return 0
     echo "netfilter-guard: rules.$fam has rules but $fam tooling/stack is unavailable" >&2; return 1
@@ -66,6 +72,7 @@ status_family() {
   local fam=$1 want t h rc=0
   want=$(wanted "$fam")
   [ -n "$want" ] || return 0
+  if v6_off "$fam"; then echo "== $fam skipped (IPv6 disabled on this host)"; return 0; fi
   while read -r t h; do
     echo "== $fam $t $PREFIX$h"
     # shellcheck disable=SC2046

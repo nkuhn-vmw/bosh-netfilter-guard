@@ -65,6 +65,10 @@ e2e() {
     grep -q "plain SYN *-> connected" <<<"$out" || { echo "plain SYN blocked: $out"; exit 1; }
     grep -q "options -> no answer" <<<"$out" || { echo "options SYN not dropped: $out"; exit 1; }
     iptables -t raw -L NFG-PREROUTING -v -n -x | grep "nfg:ipv4-options-tcp" | awk "{exit !(\$1>0)}" || { echo "counter did not move"; exit 1; }
+    NFG_IF_INET6=/nonexistent bash $S apply | grep -q "IPv6 is disabled" || { echo "no v6-off notice"; exit 1; }
+    ! ip6tables -t raw -S | grep -q NFG- || { echo "v6 chain kept with IPv6 off"; exit 1; }
+    NFG_IF_INET6=/nonexistent bash $S status >/dev/null || { echo "status fails with IPv6 off"; exit 1; }
+    bash $S apply >/dev/null
     : > "$NFG_LIB/rules.v6"; bash $S apply                   # dropping v6 rules removes the stale v6 chain
     ! ip6tables -t raw -S | grep -q NFG- || { echo "stale v6 chain kept"; exit 1; }
     bash $S remove
@@ -73,9 +77,20 @@ e2e() {
   '
 }
 if unshare -rn true 2>/dev/null && command -v iptables >/dev/null && unshare -rn iptables -t raw -S >/dev/null 2>&1; then
-  e2e && ok "apply/idempotent/packet-drop/stale-cleanup/remove in netns" || bad "netns end-to-end"
+  e2e && ok "apply/idempotent/packet-drop/ipv6-off/stale-cleanup/remove in netns" || bad "netns end-to-end"
 else
   echo "skip netns end-to-end (no unprivileged user namespaces or iptables)"
+fi
+
+# 6. evidence.sh compares a fix only within the VM's own kernel series
+if command -v dpkg-query >/dev/null && dpkg-query -W "linux-image-$(uname -r)" >/dev/null 2>&1; then
+  pkg=$(dpkg-query -W -f='${Version}' "linux-image-$(uname -r)"); ser=${pkg%%-*}
+  ev() { bash tools/evidence.sh "$@" 2>/dev/null | sed -n 's/^kernel_fixed=//p'; }
+  [ "$(ev --fixed-deb 0.0.1-1.1)" = unknown ] && ok "evidence: other-series fix -> unknown" || bad "evidence: cross-series"
+  [ "$(ev --fixed-deb "$ser-1.1")" = yes ] && ok "evidence: older fix in series -> yes" || bad "evidence: older fix"
+  [ "$(ev --fixed-deb "$ser-99999.1")" = no ] && ok "evidence: newer fix in series -> no" || bad "evidence: newer fix"
+else
+  echo "skip evidence.sh series tests (no dpkg kernel package)"
 fi
 
 echo "$pass passed, $fail failed"; [ $fail = 0 ]

@@ -106,9 +106,34 @@ Combine several by listing their entries under one `netfilter_guard.rules`.
   container can still send the packet to itself; only the real fix closes that.
 - **Edge devices are separate.** Full-proxy load balancers already open fresh connections to backends, but
   pass-through / NAT / DSR load balancers forward the client's packet as is. Their own OS needs checking too.
-- **No IPv6 stack, no IPv6 rules.** If a VM has IPv6 disabled, `family: ipv6` rules make `apply` fail
-  instead of silently skipping them; `family: both` rules need the IPv6 side to load too.
+- **IPv6 disabled = v6 rules skipped.** Standard BOSH stemcells boot with IPv6 disabled (no
+  `/proc/net/if_inet6`), so there's no IPv6 traffic to filter. `apply` logs that it skipped the v6 rules,
+  and `status` reports them as skipped rather than missing. `family: both` therefore works everywhere.
+- **Re-applying resets counters.** Each deploy and each reboot refills the chains, so counters count from
+  the last apply. Read them (`netfilter-guard status`, or `tools/evidence.sh`) before you redeploy.
 - Requires `iptables`/`ip6tables` ≥ 1.6.2 (for `-w` on restore); both the legacy and nf_tables backends work.
+
+## Evidence
+
+Proving a mitigation (or a patch) needs a record per VM, not a spot check. Two read-only tools:
+
+- `tools/evidence.sh` runs on a VM as root and prints `key=value` lines: instance, deployment, stemcell, boot
+  time, running kernel and package version, whether that kernel is at or above a fixed version, and the
+  guard's unit state, jumps and per-rule counters.
+  Pass the fixed version **once per kernel series** (`--fixed-deb 5.15.0-NNN.NNN --fixed-deb 6.8.0-NNN.NNN`,
+  or `--fixed-uname X.Y.Z` for VMs without dpkg). A fix is only compared against a kernel of the same series;
+  with no match the answer is `unknown`, never a cross-series "yes".
+- `tools/fleet-evidence.sh OUTDIR [--fixed-deb V]... [--probe 22] [deployment ...]` runs it across every instance
+  of the targeted director (one `bosh ssh` per deployment, in parallel within it). With `--probe` it also probes
+  each VM from where you run it. Output: raw records per deployment, `summary.tsv` (one row per VM) and `SHA256SUMS`.
+
+A workable evidence trail:
+1. **Baseline:** `fleet-evidence.sh` before you change anything. It shows the affected kernels, and with `--probe`
+   that crafted packets get through.
+2. **Mitigated:** the same run after rollout. Every row should show `guard_unit=enabled/active`, the rule present
+   with target `DROP`, and the options probe getting no answer.
+3. **Patched:** the same run after the fixed stemcell is deployed. Every row should show `kernel_fixed=yes`. Then
+   retire the guard (`enabled: false`), run it again, and archive all runs with their `SHA256SUMS`.
 
 ## Testing
 
