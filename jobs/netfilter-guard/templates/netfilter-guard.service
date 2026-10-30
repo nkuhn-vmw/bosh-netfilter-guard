@@ -1,18 +1,24 @@
 [Unit]
 Description=netfilter-guard host packet rules
 # Same ordering as Debian's netfilter-persistent: rules are in place before any interface comes up.
+# Ordering is not a hard dependency: if apply fails at boot, networking still starts. The unit retries,
+# and netfilter-guard-reconcile.timer re-checks every 2 minutes.
 DefaultDependencies=no
 Wants=network-pre.target
 Before=network-pre.target shutdown.target
 After=systemd-modules-load.service local-fs.target
 Conflicts=shutdown.target
+StartLimitIntervalSec=0
 
 [Service]
 Type=oneshot
 RemainAfterExit=yes
 ExecStart=/usr/local/sbin/netfilter-guard apply
 ExecReload=/usr/local/sbin/netfilter-guard apply
-ExecStop=/usr/local/sbin/netfilter-guard remove
+# No ExecStop: stopping (including at shutdown) leaves the rules in place. Removal is explicit, via
+# netfilter_guard.enabled=false, so there is never an unprotected window while the VM is still up.
+Restart=on-failure
+RestartSec=10
 
 [Install]
 WantedBy=multi-user.target

@@ -19,15 +19,20 @@
     seen[name] = true
     match = r['match'].to_s.strip
     raise "#{where}.match is required" if match.empty?
-    raise "#{where}.match must not contain a target (-j/-g); use `target`" if match =~ /(\A|\s)(-j|--jump|-g|--goto)(\s|=)/
-    raise "#{where}.match must be a single line" if match =~ /[\r\n]/
+    raise "#{where}.match must not contain control characters" if match =~ /[[:cntrl:]]/
+    # any form of jump/goto: -j X, -jX, -g X, -gX, --jump, --goto and their getopt abbreviations (--ju, --go, ...)
+    if match.split(/\s+/).any? { |tok| tok =~ /\A-[jg]/ || tok =~ /\A--(j|ju|jum|jump|g|go|got|goto)(=|\z)/ }
+      raise "#{where}.match must not contain a target (-j/-g/--jump/--goto); use `target`"
+    end
     raise "#{where}.family must be ipv4, ipv6 or both" unless %w(ipv4 ipv6 both).include?(r.fetch('family', 'ipv4'))
     table = r.fetch('table', 'raw')
     raise "#{where}.table must be one of #{HOOKS.keys.join(', ')}" unless HOOKS.key?(table)
     hook = r.fetch('hook', 'PREROUTING')
     raise "#{where}.hook #{hook} is not valid for table #{table} (#{HOOKS[table].join(', ')})" unless HOOKS[table].include?(hook)
     raise "#{where}.mode must be enforce or monitor" unless %w(enforce monitor).include?(r.fetch('mode', global_mode))
-    raise "#{where}.target must be a single line" if r.fetch('target', 'DROP').to_s =~ /[\r\n]/
+    target = r.fetch('target', 'DROP').to_s
+    raise "#{where}.target must not contain control characters" if target =~ /[[:cntrl:]]/
+    raise "#{where}.target must start with an iptables target name, e.g. DROP or LOG --log-prefix x" unless target =~ /\A[A-Z][A-Z0-9_]*( [^[:cntrl:]]*)?\z/
   end
   grouped = {}
   rules.each do |r|

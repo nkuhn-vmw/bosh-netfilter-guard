@@ -4,7 +4,7 @@
 # Then redeploy the included deployments (or Apply Changes on Ops Manager-managed directors).
 releases:
 - name: netfilter-guard
-  version: 0.1.0
+  version: 0.1.2
 
 addons:
 - name: netfilter-guard

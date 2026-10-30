@@ -1,27 +1,41 @@
 #!/bin/bash
-# Installs the rules, script and unit on the root disk, then applies them.
+# Installs the rules, script, unit and reconcile timer on the root disk, then applies them.
 # Why the root disk: /var/vcap/jobs is rebuilt by the BOSH agent after boot, so a unit pointing there
 # fails at boot (203/EXEC), and pre-start does not re-run on reboot.
+# New rule files are dry-run with iptables-restore --test before they replace the installed ones, and the
+# previous files are restored if applying fails, so the boot-time ruleset is always the last one that worked.
 set -euo pipefail
 JOB=/var/vcap/jobs/netfilter-guard
 LIB=/usr/local/lib/netfilter-guard
 BIN=/usr/local/sbin/netfilter-guard
-UNIT=/etc/systemd/system/netfilter-guard.service
+SD=/etc/systemd/system
 <% if p('netfilter_guard.enabled') -%>
 install -d -m 0755 $LIB
+NFG_LIB=$JOB/config bash $JOB/bin/netfilter-guard test $JOB/config/rules.v4 $JOB/config/rules.v6
+for f in rules.v4 rules.v6; do [ -f $LIB/$f ] && cp -p $LIB/$f $LIB/$f.prev || rm -f $LIB/$f.prev; done
 install -m 0644 $JOB/config/rules.v4 $LIB/rules.v4
 install -m 0644 $JOB/config/rules.v6 $LIB/rules.v6
 install -m 0755 $JOB/bin/netfilter-guard $BIN
-install -m 0644 $JOB/config/netfilter-guard.service $UNIT
+install -m 0644 $JOB/config/netfilter-guard.service $SD/netfilter-guard.service
+install -m 0644 $JOB/config/netfilter-guard-reconcile.service $SD/netfilter-guard-reconcile.service
+install -m 0644 $JOB/config/netfilter-guard-reconcile.timer $SD/netfilter-guard-reconcile.timer
 systemctl daemon-reload
-systemctl enable netfilter-guard.service
-# reload re-applies in place (atomic per table); start only if the unit isn't active yet
-systemctl reload-or-restart netfilter-guard.service
-$BIN status
+systemctl enable netfilter-guard.service netfilter-guard-reconcile.timer
+# reload re-applies in place (atomic per table); start if the unit isn't active yet (or failed earlier)
+if ! systemctl reload-or-restart netfilter-guard.service || ! $BIN status; then
+  echo "netfilter-guard: apply failed; restoring the previous rule files" >&2
+  for f in rules.v4 rules.v6; do [ -f $LIB/$f.prev ] && mv $LIB/$f.prev $LIB/$f; done
+  $BIN apply || true
+  $BIN status || true
+  exit 1
+fi
+systemctl start netfilter-guard-reconcile.timer
+rm -f $LIB/rules.v4.prev $LIB/rules.v6.prev
 <% else -%>
+systemctl disable --now netfilter-guard-reconcile.timer 2>/dev/null || true
 systemctl disable netfilter-guard.service 2>/dev/null || true
 if [ -x $BIN ]; then $BIN remove; else NFG_LIB=$JOB/config bash $JOB/bin/netfilter-guard remove; fi
 systemctl stop netfilter-guard.service 2>/dev/null || true
-rm -rf $LIB $BIN $UNIT
+rm -rf $LIB $BIN $SD/netfilter-guard.service $SD/netfilter-guard-reconcile.service $SD/netfilter-guard-reconcile.timer
 systemctl daemon-reload
 <% end -%>

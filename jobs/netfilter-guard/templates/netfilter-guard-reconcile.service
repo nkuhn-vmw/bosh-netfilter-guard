@@ -1,0 +1,7 @@
+[Unit]
+Description=netfilter-guard drift check (re-applies only if rules are missing or changed)
+After=netfilter-guard.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/netfilter-guard reconcile

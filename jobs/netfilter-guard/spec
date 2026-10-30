@@ -12,6 +12,8 @@ templates:
   rules.v4.erb: config/rules.v4
   rules.v6.erb: config/rules.v6
   netfilter-guard.service: config/netfilter-guard.service
+  netfilter-guard-reconcile.service: config/netfilter-guard-reconcile.service
+  netfilter-guard-reconcile.timer: config/netfilter-guard-reconcile.timer
 
 packages: []
 

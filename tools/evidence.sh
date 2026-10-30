@@ -3,20 +3,34 @@
 # kernel is at/above a fixed version, and the netfilter-guard state with per-rule counters.
 # Run as root on the VM (e.g. via `bosh ssh -c`). Read-only.
 #   evidence.sh [--fixed-deb VERSION]... [--fixed-uname VERSION]...
-#     --fixed-deb    fixed linux-image package version (Debian/Ubuntu), e.g. 5.15.0-999.999; repeat once per
-#                    kernel series (5.15.0, 6.8.0, ...). Only a fix for the VM's own series is compared;
-#                    with none, kernel_fixed=unknown (never compare across series).
+#     --fixed-deb    [FLAVOR:]VERSION of the fixed linux-image package (Debian/Ubuntu), e.g. 5.15.0-999.999 or
+#                    aws:5.15.0-1099.106. FLAVOR defaults to "generic". Repeat once per series and flavor. A fix is
+#                    compared only against a kernel of the same series AND flavor; with no match the result is
+#                    kernel_fixed=unknown (never a cross-series or cross-flavor yes). Duplicates are rejected.
 #     --fixed-uname  fixed upstream version for VMs without dpkg, e.g. 7.2.10; also per series (major.minor)
 set -uo pipefail
 FIXED_DEB=() FIXED_UNAME=()
 while [ $# -gt 0 ]; do
   case $1 in
-    --fixed-deb) FIXED_DEB+=("$2"); shift 2 ;;
+    --fixed-deb) v=$2; [[ $v == *:* ]] || v="generic:$v"; FIXED_DEB+=("$v"); shift 2 ;;
     --fixed-uname) FIXED_UNAME+=("$2"); shift 2 ;;
     *) echo "unknown arg $1" >&2; exit 2 ;;
   esac
 done
 kv() { printf '%s=%s\n' "$1" "$2"; }
+# reject malformed or duplicate thresholds (a later, older threshold would otherwise override a "no")
+seen=" "
+for v in "${FIXED_DEB[@]}"; do
+  [[ $v =~ ^[a-z0-9.+-]+:[0-9]+\.[0-9]+\.[0-9]+-[0-9][0-9A-Za-z.+~-]*$ ]] || { echo "bad --fixed-deb $v" >&2; exit 2; }
+  key="${v%%:*}:${v#*:}"; key="${key%%-*}"
+  [[ $seen == *" $key "* ]] && { echo "duplicate --fixed-deb for series/flavor ${key}" >&2; exit 2; }
+  seen+="$key "
+done
+for v in "${FIXED_UNAME[@]}"; do
+  [[ $v =~ ^[0-9]+\.[0-9]+(\.[0-9]+)?$ ]] || { echo "bad --fixed-uname $v" >&2; exit 2; }
+  key=$(cut -d. -f1-2 <<<"$v"); [[ $seen == *" u$key "* ]] && { echo "duplicate --fixed-uname for $key" >&2; exit 2; }
+  seen+="u$key "
+done
 first() { for f in "$@"; do [ -r "$f" ] && { tr -d '\n' < "$f"; return; }; done; echo -n unknown; }
 
 kv collected_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
@@ -25,12 +39,16 @@ kv deployment "$(first /var/vcap/instance/deployment)"
 kv stemcell "$(first /var/vcap/bosh/etc/operating_system)/$(first /var/vcap/bosh/etc/stemcell_version)"
 kv booted_at "$(date -u -d "$(uptime -s)" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || echo unknown)"
 K=$(uname -r); kv kernel_running "$K"
+FLAVOR=${K##*-}; [[ $FLAVOR =~ ^[0-9] ]] && FLAVOR=generic   # 5.15.0-187-generic -> generic, 5.15.0-1099-aws -> aws
 
 fixed=unknown
 if command -v dpkg-query >/dev/null; then
   pkg=$(dpkg-query -W -f='${Version}' "linux-image-$K" 2>/dev/null || true)
   kv kernel_package "linux-image-$K=${pkg:-unknown}"
-  for f in "${FIXED_DEB[@]}"; do   # same series = same upstream version before the first '-'
+  kv kernel_flavor "$FLAVOR"
+  for fv in "${FIXED_DEB[@]}"; do   # same series = same upstream version before the first '-', same flavor
+    f=${fv#*:}
+    [ "${fv%%:*}" = "$FLAVOR" ] || continue
     [ -n "$pkg" ] && [ "${f%%-*}" = "${pkg%%-*}" ] || continue
     dpkg --compare-versions "$pkg" ge "$f" && fixed=yes || fixed=no
     kv kernel_fixed_in "$f"
