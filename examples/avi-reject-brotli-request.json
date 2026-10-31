@@ -1,0 +1,14 @@
+{
+  "name": "reject-request-content-encoding-br",
+  "description": "Rejects requests whose body is Brotli-compressed (Content-Encoding contains br). Mitigates server-side Brotli decoder bugs (HTTP2Shell class) until runtimes are patched. Attach only to L7 virtual services that terminate TLS.",
+  "http_security_policy": {
+    "rules": [{
+      "name": "reject-br-request-body",
+      "index": 1,
+      "enable": true,
+      "log": true,
+      "match": {"hdrs": [{"hdr": "Content-Encoding", "match_criteria": "HDR_CONTAINS", "match_case": "INSENSITIVE", "value": ["br"]}]},
+      "action": {"action": "HTTP_SECURITY_ACTION_SEND_RESPONSE", "status_code": "HTTP_LOCAL_RESPONSE_STATUS_CODE_403"}
+    }]
+  }
+}

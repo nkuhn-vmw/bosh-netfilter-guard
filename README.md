@@ -173,6 +173,10 @@ Proving a mitigation (or a patch) needs a record per VM, not a spot check. Two r
   from `bosh instances`), and `SHA256SUMS`. A VM whose record couldn't be collected gets `record=MISSING`. The
   run then writes `INCOMPLETE` and exits 1, so a partial bundle is never mistaken for a complete one.
 
+- `tools/portwatch.py HOST PORT SECONDS [opts]` connects every 0.25 s and logs each state change with its duration.
+  Run it during a deploy, restart or reboot to measure how long a VM was unprotected (`opts` adds an IPv4 option to
+  every SYN).
+
 A workable evidence trail:
 1. **Baseline:** `fleet-evidence.sh` before you change anything. It shows the affected kernels, and with `--probe`
    that crafted packets get through.

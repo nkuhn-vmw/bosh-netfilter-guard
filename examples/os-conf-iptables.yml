@@ -1,13 +1,15 @@
 # The IPv4-options rule delivered with os-conf-release's `iptables` job instead of netfilter-guard.
 # os-conf is maintained under the Cloud Foundry org (https://github.com/cloudfoundry/os-conf-release).
 #
-# Trade-offs, read from the job's source (os-conf v23.x):
-#   - Applied by monit, i.e. after the BOSH agent starts jobs: not in place before networking at boot, and
-#     re-applied after a reboot only when monit starts the job again.
-#   - `monit stop` (every deploy, before the update) runs disable.sh, which FLUSHES the chain: no protection
-#     from job stop until job start.
-#   - The jump to `pfbr-custom-<chain>` is APPENDED to the built-in chain, so any earlier ACCEPT wins.
-#     raw/PREROUTING is normally empty on stemcells, so it works there; it's riskier in filter/FORWARD.
+# Trade-offs, measured on a Jammy BOSH VM with os-conf 23.0.4 (see docs/mitigation-matrix.md):
+#   - Applied by monit, after the BOSH agent starts jobs: after a reboot the rule was absent for 58 s once the
+#     VM was reachable again.
+#   - `monit stop` (every deploy and restart) runs disable.sh, which FLUSHES the chain: 28 s without the rule on
+#     each `bosh restart`.
+#   - The jump to `pfbr-custom-<chain>` is APPENDED to the built-in chain, so any earlier ACCEPT wins, and nothing
+#     ever repairs that. raw/PREROUTING is normally empty on stemcells, so it works there; it's riskier in
+#     filter/FORWARD.
+#   - Removing the job leaves empty chains and jumps behind until reboot.
 #   - No validation, drift repair, monitor mode or evidence tooling.
 releases:
 - name: os-conf
